@@ -8,7 +8,6 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.location.Address
-import android.location.Geocoder
 import android.os.Bundle
 import android.os.Looper
 import android.util.Log
@@ -24,22 +23,14 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.res.ResourcesCompat
 import androidx.core.view.isVisible
 import androidx.preference.PreferenceManager
-import com.android.volley.Response
-import com.android.volley.toolbox.JsonObjectRequest
-import com.android.volley.toolbox.Volley
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.CommonStatusCodes
 import com.google.android.gms.common.api.ResolvableApiException
 import com.google.android.gms.location.*
 import com.zayver.taller2.databinding.ActivityMapBinding
-import com.zayver.taller2.entity.Location
 import com.zayver.taller2.location.PositionTracker
+import com.zayver.taller2.storage.StorageManager
 import kotlinx.coroutines.*
-import kotlinx.datetime.Clock
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toLocalDateTime
-import org.json.JSONArray
-import org.json.JSONObject
 import org.osmdroid.bonuspack.kml.KmlDocument
 import org.osmdroid.bonuspack.routing.OSRMRoadManager
 import org.osmdroid.bonuspack.routing.Road
@@ -49,20 +40,14 @@ import org.osmdroid.events.MapEventsReceiver
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.CustomZoomButtonsController
-import org.osmdroid.views.overlay.FolderOverlay
-import org.osmdroid.views.overlay.MapEventsOverlay
-import org.osmdroid.views.overlay.Marker
-import org.osmdroid.views.overlay.Polyline
-import org.osmdroid.views.overlay.TilesOverlay
+import org.osmdroid.views.overlay.*
 import org.osmdroid.views.overlay.compass.CompassOverlay
 import org.osmdroid.views.overlay.compass.InternalCompassOrientationProvider
 import java.io.File
-import java.io.FileNotFoundException
-import java.util.LinkedList
+import com.zayver.taller2.network.NetworkRequester
 
 
 class MapActivity : AppCompatActivity() {
-
     companion object{
         const val SHORT_GPS_UPDATE_INTERVAL = 500L
         const val LONG_GPS_UPDATE_INTERVAL = 1000L
@@ -112,7 +97,7 @@ class MapActivity : AppCompatActivity() {
             }
             if(positionTracker.updateLocation(actualPosition)){
                 CoroutineScope(Dispatchers.IO).launch{
-                    saveLocation()
+                    StorageManager.saveLocation(getFile(), positionTracker)
                 }
             }
         }
@@ -153,7 +138,7 @@ class MapActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMapBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        checkFileSystem()
+        StorageManager.checkFileSystem(getFile())
         requestPermission.launch(Manifest.permission.ACCESS_FINE_LOCATION)
         mFusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         Configuration.getInstance().load(baseContext, PreferenceManager.getDefaultSharedPreferences(baseContext))
@@ -182,7 +167,7 @@ class MapActivity : AppCompatActivity() {
                 if (dir.isNotEmpty()) {
                     CoroutineScope(Dispatchers.Main).launch{
                         val resultDir: List<Address> = try{
-                            searchDir(dir)
+                            NetworkRequester.searchDir(dir, baseContext)
                         }catch (e: TimeoutCancellationException){
                             displayErrorText("Network Timeout")
                             return@launch
@@ -198,7 +183,7 @@ class MapActivity : AppCompatActivity() {
                             searchedMarker = setMarker(pos, resultDir[0].getAddressLine(0), R.drawable.map_marker_blue)
                             launch{
                                 try{
-                                    val road = drawRoute(positionTracker.position, pos)
+                                    val road = NetworkRequester.drawRoute(positionTracker.position, pos, roadManager)
                                     drawRoad(road)
                                     displayRoadLength(road.mLength)
                                 }catch (e: TimeoutCancellationException){
@@ -234,7 +219,7 @@ class MapActivity : AppCompatActivity() {
             }
             CoroutineScope(Dispatchers.Main).launch {
                 val (road, points) = try{
-                     drawRouteFromInternal()
+                    NetworkRequester.drawRouteFromInternal(getFile(), roadManager)
                 }catch (e: TimeoutCancellationException){
                     displayErrorText("Network Timeout")
                     return@launch
@@ -254,16 +239,26 @@ class MapActivity : AppCompatActivity() {
         }
         binding.otherApiImageButton.setOnClickListener {
             CoroutineScope(Dispatchers.Main).launch {
-                val (_, points) = try{
+                val (road, points) = try{
                     clearMap()
-                    drawRouteFromInternalOtherApi()
+                    NetworkRequester.drawRouteFromInternalOtherApi(getFile(), baseContext)
                 }catch (e: TimeoutCancellationException){
                     displayErrorText("Network Timeout")
                     return@launch
-                }catch (e: Exception){
+                }
+                catch (e: Exception){
                     displayErrorText("Error: $e")
                     return@launch
                 }
+                if(road == null){
+                    displayErrorText("Error on api")
+                    return@launch
+                }
+                val kml = KmlDocument()
+                kml.parseGeoJSON(road.toString())
+                folderOverlay = kml.mKmlRoot.buildOverlay(binding.map, null, null, kml) as FolderOverlay
+                binding.map.postInvalidate()
+                binding.map.overlays.add(folderOverlay)
                 for(i in points){
                     roadMarkers.add(setMarker(GeoPoint(i.latitude, i.longitude), i.date))
                 }
@@ -308,7 +303,7 @@ class MapActivity : AppCompatActivity() {
     private fun longPressOnMap(p: GeoPoint) {
         CoroutineScope(Dispatchers.Main).launch {
             val dir: Address = try{
-                 searchLocation(p.latitude, p.longitude)[0]
+                NetworkRequester.searchLocation(p.latitude, p.longitude, baseContext)[0]
             }catch (e: TimeoutCancellationException){
                 displayErrorText("Network Timeout")
                 return@launch
@@ -322,7 +317,7 @@ class MapActivity : AppCompatActivity() {
             binding.map.controller.animateTo(p)
             launch{
                 try {
-                    val road = drawRoute(positionTracker.position, p)
+                    val road = NetworkRequester.drawRoute(positionTracker.position, p, roadManager)
                     displayRoadLength(road.mLength)
                     drawRoad(road)
                 }catch (e: TimeoutCancellationException){
@@ -370,73 +365,12 @@ class MapActivity : AppCompatActivity() {
                 val isr = IntentSenderRequest.Builder(resolvable.resolution).build()
                 requestGPSEnable.launch(isr)
             }else{
+                displayErrorText("Se necesita activar el GPS")
                 Log.d("Mio", "No se ha activado el GPS")
             }
         }
     }
-    //Manage private json
-    private fun saveLocation() {
-        val file = File(baseContext.getExternalFilesDir(null), JSON_FILENAME)
-        val input: String
-        try {
-            input = file.bufferedReader().use {
-                it.readText()
-            }
-        } catch (e: FileNotFoundException) {
-            val obj = JSONObject()
-            val arr = JSONArray()
-            val clock = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
-            arr.put(
-                Location(
-                    positionTracker.position.latitude,
-                    positionTracker.position.longitude,
-                    clock.toString()
-                ).toJson()
-            )
-            obj.put("positions", arr)
-            file.bufferedWriter().use {
-                it.write(obj.toString(4))
-            }
-            return
-        }
-        val json = JSONObject(input)
-        val arr = json.getJSONArray("positions")
-        val clock = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
-        arr.put(
-            Location(
-                positionTracker.position.latitude,
-                positionTracker.position.longitude,
-                clock.toString()
-            ).toJson()
-        )
-        file.bufferedWriter().use {
-            it.write(json.toString(4))
-        }
-    }
-    private fun retrieveInternalLocations(): List<Location>{
-        val file = File(baseContext.getExternalFilesDir(null), JSON_FILENAME)
-        val input: String
-        file.bufferedReader().use {
-            input = it.readText()
-        }
-        val json = JSONObject(input)
-        val arr = json.getJSONArray("positions")
-        val list = LinkedList<Location>()
-        for (i in 0 until arr.length()) {
-            val obj = arr.getJSONObject(i)
-            list.add(
-                Location(obj.getDouble("latitude"), obj.getDouble("longitude"),
-                    obj.getString("date")
-                )
-            )
-        }
-        return list
-    }
-    private fun checkFileSystem(){
-        val file = File(baseContext.getExternalFilesDir(null), JSON_FILENAME)
-        if(file.exists())
-            file.delete()
-    }
+
     //Light sensor manipulation
     private fun initLightSensor(){
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
@@ -467,79 +401,6 @@ class MapActivity : AppCompatActivity() {
         binding.map.overlays.add(roadOverlay)
     }
 
-    //Coroutines for network calls
-    private suspend fun searchDir(dir:String): List<Address> = withContext(Dispatchers.IO){
-        withTimeout(COROUTINE_TIMEOUT) {
-            val geocoder = Geocoder(baseContext)
-            return@withTimeout geocoder.getFromLocationName(dir, 1)
-        }
-    }
-    private suspend fun searchLocation(lat: Double, lon: Double): List<Address> = withContext(Dispatchers.IO){
-        withTimeout(COROUTINE_TIMEOUT){
-            val geocoder = Geocoder(baseContext)
-            return@withTimeout geocoder.getFromLocation(lat, lon, 1)
-        }
-    }
-    private suspend fun drawRoute(start: GeoPoint, end: GeoPoint): Road = withContext(Dispatchers.IO) {
-        withTimeout(COROUTINE_TIMEOUT){
-            val findRoute = arrayListOf(start, end)
-            return@withTimeout roadManager.getRoad(findRoute)
-        }
-    }
-    private suspend fun drawRouteFromInternal(): Pair<Road, List<Location>> = withContext(Dispatchers.IO){
-        val locationsList = retrieveInternalLocations()
-        val transformed = ArrayList<GeoPoint>()
-        for(i in locationsList){
-            transformed.add(GeoPoint(i.latitude, i.longitude))
-        }
-        withTimeout(COROUTINE_TIMEOUT){
-            return@withTimeout Pair(roadManager.getRoad(transformed), locationsList)
-        }
-    }
-    private suspend fun drawRouteFromInternalOtherApi(): Pair<FolderOverlay, List<Location>> = withContext(Dispatchers.IO){
-        val locationsList = retrieveInternalLocations()
-        val transformed = ArrayList<GeoPoint>()
-        val asker = JSONArray()
-        for(i in locationsList){
-            transformed.add(GeoPoint(i.latitude, i.longitude))
-            val coordinates = JSONArray()
-            coordinates.put(i.longitude)
-            coordinates.put(i.latitude)
-            asker.put(coordinates)
-        }
-        val request = JSONObject()
-        request.put("coordinates", asker)
-        withTimeout(COROUTINE_TIMEOUT) {
-            val query = object : JsonObjectRequest(Method.POST, OPEN_ROUTE_API, request,
-                Response.Listener {
-                    Log.d("Mio", "Response OK")
-                    val kml = KmlDocument()
-                    kml.parseGeoJSON(it.toString())
-                    folderOverlay = kml.mKmlRoot.buildOverlay(binding.map, null, null, kml) as FolderOverlay
-                    binding.map.postInvalidate()
-                    binding.map.overlays.add(folderOverlay)
-
-                },
-                Response.ErrorListener {
-                    displayErrorText("Error on Post request")
-                }
-                ){
-                override fun getHeaders(): MutableMap<String, String> {
-                    val headers = HashMap<String, String>()
-                    headers["Accept"] =
-                        "application/json, application/geo+json, application/gpx+xml, img/png; charset=utf-8"
-                    headers["Authorization"] = BuildConfig.ORS_API_KEY
-                    headers["Content-Type"] = "application/json; charset=utf-8"
-                    return headers
-                }
-            }
-            val requestQueue = Volley.newRequestQueue(baseContext)
-            requestQueue.add(query)
-
-            return@withTimeout Pair(FolderOverlay(), locationsList)
-        }
-    }
-
     //extras
     private fun displayRoadLength(distance: Double){
         Toast.makeText(baseContext, getString(R.string.distance_between_points, distance), Toast.LENGTH_LONG).show()
@@ -565,5 +426,6 @@ class MapActivity : AppCompatActivity() {
             map.overlays.remove(folderOverlay)
 
     }
+    private fun getFile() = File(baseContext.getExternalFilesDir(null), JSON_FILENAME)
 
 }
