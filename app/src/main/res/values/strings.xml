@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">taller2</string>
+    <string name="select_image">Seleccionar imagen</string>
+    <string name="camera">Camara</string>
+    <string name="hint_searchbar">Buscar un sitio</string>
+    <string name="your_pos">Tu posición</string>
+
+    <style name="your_position">Tu posición</style>
+    <string name="distance_between_points">La distancia es de: %1$.3f kms</string>
+</resources>

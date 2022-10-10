@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".MapActivity">
+
+
+    <org.osmdroid.views.MapView
+        android:id="@+id/map"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <EditText
+        android:id="@+id/search_bar"
+        android:layout_width="300dp"
+        android:layout_height="50dp"
+        android:layout_gravity="center_horizontal"
+        android:autofillHints=""
+        android:background="@drawable/round_corner"
+        android:hint="@string/hint_searchbar"
+        android:imeOptions="actionSend"
+        android:inputType="text"
+        android:textAlignment="center"
+        android:textColorHint="#78909C"
+        android:textSize="20sp"
+        android:translationX="20dp"
+        android:translationY="12dp"
+        />
+
+
+    <ImageButton
+        android:id="@+id/my_location_button"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="@drawable/circle_button"
+        android:layout_gravity="center_vertical"
+        android:layout_margin="25dp"
+        android:src="@drawable/gps_icon"
+        android:translationY="-70dp"
+        android:scaleType="centerInside"
+        android:padding="5dp"
+        android:visibility="invisible"
+        tools:ignore="ContentDescription,SpeakableTextPresentCheck"
+        />
+
+    <ImageButton
+        android:id="@+id/draw_image_button"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="@drawable/circle_button"
+        android:layout_gravity="center_vertical"
+        android:layout_margin="25dp"
+        android:scaleType="centerInside"
+        android:src="@drawable/draw_icon"
+        android:padding="5dp"
+        android:visibility="invisible"
+
+        tools:ignore="ContentDescription"
+
+        />
+
+    <ImageButton
+        android:id="@+id/reset_image_button"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="@drawable/circle_button"
+        android:layout_gravity="center_vertical"
+        android:translationY="70dp"
+        android:layout_margin="25dp"
+        android:scaleType="centerInside"
+        android:src="@drawable/clear_icon"
+        android:padding="5dp"
+        android:visibility="invisible"
+
+        tools:ignore="ContentDescription" />
+    <ImageButton
+        android:id="@+id/other_api_image_button"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="@drawable/circle_button"
+        android:layout_gravity="center_vertical"
+        android:translationY="140dp"
+        android:layout_margin="25dp"
+        android:scaleType="centerInside"
+        android:padding="5dp"
+        android:src="@drawable/api_icon"
+        android:visibility="invisible"
+
+        tools:ignore="ContentDescription" />
+
+
+
+</FrameLayout>
